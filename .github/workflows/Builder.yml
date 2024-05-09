@@ -229,6 +229,7 @@ jobs:
       run: |
         cd ${SYSDIR}
         tar -cvf loongarch-gnu-toolchain.tar cross-tools
+        echo "BINARY=$PWD/loongarch-gnu-toolchain.tar" >> $GITHUB_ENV
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: Upload Binary
@@ -237,7 +238,7 @@ jobs:
       with:
         name: loongarch-gnu-toolchain
         path: |
-          $PWD/loongarch-gnu-toolchain.tar
+          ${{ env.BINARY }}
     
     - name: Delete workflow runs
       uses: Mattraks/delete-workflow-runs@main
