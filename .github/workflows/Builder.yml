@@ -1,0 +1,246 @@
+name: Builder
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+
+env:
+  SYSDIR: ${{ github.workspace }}/loongarch
+  BUILDDIR: ${{ github.workspace }}/loongarch/build
+  DOWNLOADDIR: ${{ github.workspace }}/loongarch/downloads
+  LC_ALL: POSIX
+  CROSS_TARGET: "loongarch64-unknown-linux-gnu"
+  PATH: ${{ github.workspace }}/loongarch/cross-tools/bin:/bin:/usr/bin
+  ABI64: "lp64d"
+  JOBS: -j16
+  UPLOAD_BINARY: true
+  UPLOAD_RELEASE: false
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@main
+    
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        sudo docker image prune --all --force
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp ninja-build p7zip p7zip-full patch pkgconf python2.7 python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+    
+    - name: Initiate and Download source code
+      run: |
+        export SYSDIR=$PWD/loongarch
+        mkdir -pv ${SYSDIR}
+        mkdir -pv ${SYSDIR}/downloads
+        mkdir -pv ${SYSDIR}/build
+        install -dv ${SYSDIR}/cross-tools
+
+        cd ${SYSDIR}/downloads
+        wget https://mirrors.edge.kernel.org/pub/linux/kernel/v6.x/linux-6.8.9.tar.xz
+        wget https://ftp.gnu.org/gnu/binutils/binutils-2.42.tar.xz
+        wget https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz
+        wget https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.1.tar.xz
+        wget https://ftp.gnu.org/gnu/mpc/mpc-1.3.1.tar.gz
+        wget https://ftp.gnu.org/gnu/gcc/gcc-14.1.0/gcc-14.1.0.tar.xz
+        wget https://ftp.gnu.org/gnu/glibc/glibc-2.39.tar.xz
+        wget https://ftp.gnu.org/gnu/gdb/gdb-14.2.tar.xz
+
+    - name: Install Linux headers √
+      run: |
+        tar xf ${DOWNLOADDIR}/linux-6.8.9.tar.xz -C ${BUILDDIR}
+        pushd ${BUILDDIR}/linux-6.8.9
+          make mrproper
+          make ARCH=loongarch INSTALL_HDR_PATH=dest headers_install
+          find dest/include -name '.*' -delete
+          export INSTALL_DIST_DIR="${SYSDIR}/cross-tools/target"
+          mkdir -pv ${SYSDIR}/cross-tools/target/usr/include
+          cp -rv dest/include/* ${SYSDIR}/cross-tools/target/usr/include
+        popd
+        rm -rf ${BUILDDIR}/linux-6.8.9
+
+    - name: Build Binutils √
+      run: |
+        export CROSS_HOST="$(echo $MACHTYPE | sed "s/$(echo $MACHTYPE | cut -d- -f2)/cross/")"
+        tar xf ${DOWNLOADDIR}/binutils-2.42.tar.xz -C ${BUILDDIR}
+        pushd ${BUILDDIR}/binutils-2.42
+          rm -rf gdb* libdecnumber readline sim
+          mkdir build
+          pushd build
+            LDFLAGS="--static" \
+            ../configure --prefix=${SYSDIR}/cross-tools --build=${CROSS_HOST} --host=${CROSS_HOST} \
+                         --target=${CROSS_TARGET} --with-sysroot=${SYSDIR}/cross-tools/target --enable-nls \
+                         --disable-shared --enable-64-bit-bfd
+            make configure-host ${JOBS}
+            make ${JOBS}
+            make install-strip
+          popd
+        popd
+        rm -rf ${BUILDDIR}/binutils-2.42
+
+    - name: Build GMP √
+      run: |
+        tar xf ${DOWNLOADDIR}/gmp-6.3.0.tar.xz -C ${BUILDDIR}
+        pushd ${BUILDDIR}/gmp-6.3.0
+          ./configure --prefix=${SYSDIR}/cross-tools --enable-cxx --disable-static
+          make ${JOBS}
+          make install
+        popd
+        rm -rf gmp-6.3.0
+
+    - name: Build MPFR √
+      run: |
+        tar xf ${DOWNLOADDIR}/mpfr-4.2.1.tar.xz -C ${BUILDDIR}
+        pushd ${BUILDDIR}/mpfr-4.2.1
+          ./configure --prefix=${SYSDIR}/cross-tools --disable-static --with-gmp=${SYSDIR}/cross-tools
+          make ${JOBS}
+          make install
+        popd
+        rm -rf mpfr-4.2.1
+
+    - name: Build MPC √
+      run: |
+        tar xf ${DOWNLOADDIR}/mpc-1.3.1.tar.gz -C ${BUILDDIR}
+        pushd ${BUILDDIR}/mpc-1.3.1 
+          ./configure --prefix=${SYSDIR}/cross-tools --disable-static --with-gmp=${SYSDIR}/cross-tools
+          make ${JOBS}
+          make install
+        popd
+        rm -rf mpc-1.3.1
+
+    - name: Build GCC - PASS 1 √
+      run: |
+        export CROSS_HOST="$(echo $MACHTYPE | sed "s/$(echo $MACHTYPE | cut -d- -f2)/cross/")"
+        tar xf ${DOWNLOADDIR}/gcc-14.1.0.tar.xz -C ${BUILDDIR} 
+        pushd ${BUILDDIR}/gcc-14.1.0
+          mkdir build
+          pushd build
+            LDFLAGS="-static" \
+            ../configure --prefix=${SYSDIR}/cross-tools --build=${CROSS_HOST} --host=${CROSS_HOST} \
+                         --target=${CROSS_TARGET} --disable-nls \
+                         --with-mpfr=${SYSDIR}/cross-tools \
+                         --with-gmp=${SYSDIR}/cross-tools \
+                         --with-mpc=${SYSDIR}/cross-tools \
+                         --with-newlib --disable-shared --with-sysroot=${SYSDIR}/cross-tools/target \
+                         --disable-decimal-float --disable-libgomp --disable-libitm \
+                         --disable-libsanitizer --disable-libquadmath --disable-threads \
+                         --disable-target-zlib --with-system-zlib --enable-checking=release \
+                         --enable-default-pie --disable-multilib --with-abi=${ABI64} \
+                         --enable-languages=c,c++
+            make all-gcc all-target-libgcc ${JOBS}
+            make install-strip-gcc install-strip-target-libgcc
+          popd
+        popd
+        rm -rf ${BUILDDIR}/gcc-14.1.0
+
+    - name: Build Glibc √
+      run: |
+        export CROSS_HOST="$(echo $MACHTYPE | sed "s/$(echo $MACHTYPE | cut -d- -f2)/cross/")"
+        tar xf ${DOWNLOADDIR}/glibc-2.39.tar.xz -C ${BUILDDIR}
+        pushd ${BUILDDIR}/glibc-2.39
+          sed -i "s@5.15.0@4.15.0@g" sysdeps/unix/sysv/linux/loongarch/configure{,.ac}
+          mkdir -v build
+          pushd build
+            BUILD_CC="gcc" CC="${CROSS_TARGET}-gcc -mabi=${ABI64}" \
+            CXX="${CROSS_TARGET}-gcc -mabi=${ABI64}" \
+            AS="${CROSS_TARGET}-as" AR="${CROSS_TARGET}-ar" RANLIB="${CROSS_TARGET}-ranlib" \
+            ../configure --prefix=/usr --host=${CROSS_TARGET} --build=${CROSS_HOST} \
+                         --libdir=/usr/lib64 --libexecdir=/usr/lib64/glibc \
+                         --with-binutils=${SYSDIR}/cross-tools/bin \
+                         --with-headers=${SYSDIR}/cross-tools/target/usr/include \
+                         --enable-stack-protector=strong --enable-add-ons \
+                         --disable-werror libc_cv_slibdir=/usr/lib64 \
+                         --enable-kernel=4.15
+            make ${JOBS}
+            make DESTDIR=${SYSDIR}/cross-tools/target install
+          popd
+          mkdir -v build-locale
+          pushd build-locale
+            ../configure --prefix=/usr --libdir=/usr/lib64 --libexecdir=/usr/lib64/glibc \
+                         --enable-stack-protector=strong --enable-add-ons \
+                         --disable-werror libc_cv_slibdir=/usr/lib64
+            make ${JOBS}
+            make DESTDIR=${SYSDIR}/cross-tools/target localedata/install-locales
+          popd
+        popd
+        rm -rf ${BUILDDIR}/glibc-2.39
+
+    - name: Build GCC - PASS 2 √
+      run: |
+        export CROSS_HOST="$(echo $MACHTYPE | sed "s/$(echo $MACHTYPE | cut -d- -f2)/cross/")"
+        tar xf ${DOWNLOADDIR}/gcc-14.1.0.tar.xz -C ${BUILDDIR}
+        pushd ${BUILDDIR}/gcc-14.1.0
+          sed -i 's@\./fixinc\.sh@-c true@' gcc/Makefile.in
+          mkdir build
+          pushd build
+            LDFLAGS="-static" \
+            ../configure --prefix=${SYSDIR}/cross-tools \
+                         --build=${CROSS_HOST} \
+                         --host=${CROSS_HOST} \
+                         --target=${CROSS_TARGET} \
+                         --with-sysroot=${SYSDIR}/cross-tools/target \
+                         --with-mpfr=${SYSDIR}/cross-tools \
+                         --with-gmp=${SYSDIR}/cross-tools \
+                         --with-mpc=${SYSDIR}/cross-tools \
+                         --enable-__cxa_atexit --enable-threads=posix --with-system-zlib \
+                         --enable-libstdcxx-time --enable-checking=release \
+                         --enable-default-pie --disable-multilib --with-abi=${ABI64} \
+                         --enable-linker-build-id \
+                         --enable-languages=c,c++,fortran,objc,obj-c++,lto
+            make ${JOBS} all-gcc
+            make ${JOBS}
+            make install-strip
+          popd
+        popd
+        rm -rf ${BUILDDIR}/gcc-14.1.0
+
+    - name: Build GDB √
+      run: |
+        export CROSS_HOST="$(echo $MACHTYPE | sed "s/$(echo $MACHTYPE | cut -d- -f2)/cross/")"
+        tar xf ${DOWNLOADDIR}/gdb-14.2.tar.xz -C ${BUILDDIR}
+        pushd ${BUILDDIR}/gdb-14.2
+          mkdir build
+          pushd build
+            LDFLAGS="--static" \
+            ../configure --prefix=${SYSDIR}/cross-tools --build=${CROSS_HOST} \
+                         --host=${CROSS_HOST} --target=${CROSS_TARGET} \
+                         --with-sysroot=${SYSDIR}/cross-tools/target --enable-64-bit-bfd
+            make ${JOBS}
+            make install-strip
+          popd
+        popd
+        rm -rf ${BUILDDIR}/gdb-14.2
+
+    - name: Check space usage
+      run: |
+        df -hT
+    
+    # put files into tar to maintain permissions
+    - name: Organize files
+      id: organize
+      if: env.UPLOAD_BINARY == 'true' && !cancelled()
+      run: |
+        cd ${SYSDIR}
+        tar -cvf loongarch-gnu-toolchain.tar cross-tools
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Upload Binary
+      uses: actions/upload-artifact@main
+      if: steps.organize.outputs.status == 'success' && !cancelled()
+      with:
+        name: loongarch-gnu-toolchain
+        path: |
+          $PWD/loongarch-gnu-toolchain.tar
+    
+    - name: Delete workflow runs
+      uses: Mattraks/delete-workflow-runs@main
+      with:
+        retain_days: 0
+        keep_minimum_runs: 5
