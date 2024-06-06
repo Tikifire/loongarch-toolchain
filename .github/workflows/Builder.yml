@@ -139,7 +139,7 @@ jobs:
             BUILD_CC="gcc" CC="${CROSS_TARGET}-gcc -mabi=${ABI64}" \
             CXX="${CROSS_TARGET}-gcc -mabi=${ABI64}" \
             AS="${CROSS_TARGET}-as" AR="${CROSS_TARGET}-ar" RANLIB="${CROSS_TARGET}-ranlib" \
-            ../configure --prefix=/usr
+            ../configure --prefix=/usr \
                          --host=${CROSS_TARGET} --build=${CROSS_HOST} \
                          --libdir=/usr/lib64 --libexecdir=/usr/lib64/glibc \
                          --with-binutils=${SYSDIR}/cross-tools/bin \
