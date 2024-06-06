@@ -182,7 +182,7 @@ jobs:
                          --with-sysroot=${SYSDIR}/cross-tools/target \
                          --disable-shared \
                          --enable-__cxa_atexit \
-                         --enable-threads=posix
+                         --enable-threads=posix \
                          --with-system-zlib \
                          --enable-libstdcxx-time \
                          --enable-checking=release \
