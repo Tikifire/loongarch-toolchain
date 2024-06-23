@@ -14,7 +14,7 @@ gcc 14.1.0
 gdb 14.2
 glibc 2.39
 gmp 6.3.0
-linux 6.8.9
+linux 6.9.6
 mpc 1.3.1
 mpfr 4.2.1
 ```

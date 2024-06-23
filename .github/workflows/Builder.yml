@@ -53,7 +53,7 @@ jobs:
         install -dv ${SYSDIR}/cross-tools
 
         cd ${SYSDIR}/downloads
-        wget https://mirrors.edge.kernel.org/pub/linux/kernel/v6.x/linux-6.9.3.tar.xz
+        wget https://mirrors.edge.kernel.org/pub/linux/kernel/v6.x/linux-6.9.6.tar.xz
         wget https://ftp.gnu.org/gnu/binutils/binutils-2.42.tar.xz
         wget https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz
         wget https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.1.tar.xz
@@ -64,8 +64,8 @@ jobs:
 
     - name: Install Linux headers √
       run: |
-        tar xf ${DOWNLOADDIR}/linux-6.9.3.tar.xz -C ${BUILDDIR}
-        pushd ${BUILDDIR}/linux-6.9.3
+        tar xf ${DOWNLOADDIR}/linux-6.9.6.tar.xz -C ${BUILDDIR}
+        pushd ${BUILDDIR}/linux-6.9.6
           make mrproper
           make ARCH=loongarch INSTALL_HDR_PATH=dest headers_install
           find dest/include -name '.*' -delete
@@ -73,7 +73,7 @@ jobs:
           mkdir -pv ${SYSDIR}/cross-tools/target/usr/include
           cp -rv dest/include/* ${SYSDIR}/cross-tools/target/usr/include
         popd
-        rm -rf ${BUILDDIR}/linux-6.9.3
+        rm -rf ${BUILDDIR}/linux-6.9.6
 
     - name: Build Binutils √
       run: |
